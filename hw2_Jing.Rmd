@@ -1,0 +1,115 @@
+---
+title: "HW2_Jing"
+author: "Jing Chang"
+date: '2024-10-21'
+output: html_document
+runtime: shiny
+---
+
+```{r}
+knitr::opts_chunk$set(warnings = FALSE, message = FALSE)
+library(knitr)
+library(shiny)
+library(ggplot2)
+library(dplyr)
+```
+
+
+```{r}
+# Load the dataset
+anime <- read.csv("https://raw.githubusercontent.com/Jing0712/stat436/refs/heads/main/anime.csv")
+
+# Properly replace NA values in the genre column with "Unknown"
+anime$genre[is.na(anime$genre)] <- "Unknown"
+
+# Extract main genres (first genre for coloring purposes)
+anime$main_genre <- sapply(strsplit(as.character(anime$genre), ", "), `[`, 1)
+anime$main_genre[is.na(anime$main_genre)] <- "Unknown"
+
+# Extract unique genres (ensuring "Unknown" is included)
+genres <- unique(anime$main_genre)
+
+# Define the UI for the application
+ui <- fluidPage(
+  titlePanel("Anime Exploration"),
+  
+  sidebarLayout(
+    sidebarPanel(
+      # Genre selection input, setting "Action" as default
+      checkboxGroupInput("selected_genres", 
+                         "Select Genres", 
+                         choices = genres,
+                         selected = "Action"),  # Set default to "Action"
+      helpText("Use the brush to select an area in the plot and see anime details below."),
+      
+      # Search anime by name
+      textInput("search_anime", "Search Anime by Name:", value = ""),
+      tableOutput("searchResult")
+    ),
+    
+    mainPanel(
+      plotOutput("animePlot", brush = "plot_brush", click = "plot_click"), # Add click functionality
+      tableOutput("animeDetails"),
+      tableOutput("clickedAnimeInfo") # New table for click-based query results
+    )
+  )
+)
+
+# Define the server logic
+server <- function(input, output) {
+  
+  # Reactive expression to filter data based on selected genres
+  filtered_anime <- reactive({
+    if (is.null(input$selected_genres) || length(input$selected_genres) == 0) {
+      return(anime)
+    }
+    anime %>% filter(main_genre %in% input$selected_genres)
+  })
+  
+  # Scatter plot output
+  output$animePlot <- renderPlot({
+    ggplot(filtered_anime(), aes(x = members, y = rating, color = main_genre)) +
+      geom_point() +
+      labs(x = "Number of Members", y = "Rating", title = "Anime Ratings vs. Members") +
+      scale_color_manual(values = rainbow(length(unique(filtered_anime()$main_genre)))) +  # Use rainbow color palette for distinct genres
+      theme_minimal()
+  })
+  
+  # Table with anime details for the brushed area
+  output$animeDetails <- renderTable({
+    brushed_data <- brushedPoints(filtered_anime(), input$plot_brush, xvar = "members", yvar = "rating")
+    
+    if (nrow(brushed_data) > 0) {
+      brushed_data[, c("name", "genre", "type", "episodes", "rating", "members")]
+    }
+  })
+  
+  # Reactive expression for searching anime by name
+  search_result <- reactive({
+    if (input$search_anime == "") {
+      return(NULL)
+    }
+    anime %>% filter(grepl(input$search_anime, name, ignore.case = TRUE))
+  })
+  
+  # Display search results
+  output$searchResult <- renderTable({
+    result <- search_result()
+    if (!is.null(result) && nrow(result) > 0) {
+      result[, c("name", "genre", "type", "episodes", "rating", "members")]
+    }
+  })
+  
+  # Display information about anime near the click
+  output$clickedAnimeInfo <- renderTable({
+    click_data <- nearPoints(filtered_anime(), input$plot_click, xvar = "members", yvar = "rating", maxpoints = 10)
+    
+    if (nrow(click_data) > 0) {
+      click_data[, c("name", "genre", "type", "episodes", "rating", "members")]
+    }
+  })
+}
+
+# Run the application
+shinyApp(ui = ui, server = server)
+```

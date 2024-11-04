@@ -1,0 +1,120 @@
+---
+title: "project2"
+author: "Jing Chang"
+date: '2024-11-04'
+output: html_document
+runtime: shiny
+---
+
+```{r}
+knitr::opts_chunk$set(warnings = FALSE, message = FALSE)
+library(shiny)
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+```
+```{r}
+data <- read.csv("https://raw.githubusercontent.com/Aaron00Yu94/Milestone2/refs/heads/main/Electronic_sales_Sep2023-Sep2024.csv")
+
+data$Purchase.Date <- as.Date(data$Purchase.Date, format = "%Y-%m-%d")
+
+# Preprocess the data to create Age_Group and filter rows with add-ons purchased
+data <- data %>%
+  mutate(
+    Age_Group = cut(Age, breaks = seq(0, 100, by = 10), 
+                    labels = paste(seq(10, 100, by = 10) - 10, seq(10, 100, by = 10) - 1, sep = "-")),
+    Add_On_Purchase = ifelse(!is.na(Add.ons.Purchased) & Add.ons.Purchased != "", "Yes", "No")
+  )
+
+# Separate multiple add-ons into individual rows, trim whitespace, and filter out empty values
+cleaned_data <- data %>%
+  separate_rows(Add.ons.Purchased, sep = ",") %>%
+  mutate(Add_On = trimws(Add.ons.Purchased)) %>%  
+  filter(!is.na(Add_On) & Add_On != "")  
+
+# Define UI
+ui <- fluidPage(
+  titlePanel("Customer Behavior Analysis"),
+  
+  sidebarLayout(
+    sidebarPanel(
+      # Age group selector for filtering
+      selectInput("age_group", "Select Age Group:", 
+                  choices = unique(data$Age_Group), 
+                  selected = unique(data$Age_Group)[1]),
+      # Date range selector for filtering
+      dateRangeInput("date_range", "Select Date Range:",
+                     start = min(data$Purchase.Date, na.rm = TRUE),
+                     end = max(data$Purchase.Date, na.rm = TRUE)),
+      # Order status selector for filtering
+      selectInput("order_status", "Select Order Status:",
+                  choices = c("Completed", "Cancelled"),
+                  selected = "Completed"),
+      # Relationship selector for plot type
+      selectInput("relationship", "Select Relationship to View:",
+                  choices = c("Product Type vs Add-On Purchase", "Product Type vs Shipping Type"),
+                  selected = "Product Type vs Add-On Purchase")
+    ),
+    
+    mainPanel(
+      # Conditional panel to show different plots based on selection
+      plotOutput("relationship_plot"),
+      # Display filtered data below the plot
+      h4("Filtered Data"),
+      tableOutput("filtered_data")
+    )
+  )
+)
+
+# Define server logic
+server <- function(input, output) {
+  
+  # Conditional plot based on selected relationship
+  output$relationship_plot <- renderPlot({
+    # Filter cleaned data based on selected age group, date range, and order status
+    filtered_data <- cleaned_data %>% 
+      filter(Age_Group == input$age_group,
+             Purchase.Date >= input$date_range[1] & Purchase.Date <= input$date_range[2],
+             Order.Status == input$order_status)
+    
+    # Conditional rendering of plots based on user selection
+    if (input$relationship == "Product Type vs Add-On Purchase") {
+      ggplot(filtered_data, aes(x = Product.Type, fill = Add_On)) +
+        geom_bar(position = "dodge") +
+        labs(title = paste("Add-On Purchases by Product Type for Age Group", input$age_group, "and Order Status", input$order_status), 
+             x = "Product Type", y = "Count") +
+        scale_fill_manual(values = c("Accessory" = "aquamarine4", "Extended Warranty" = "antiquewhite2", "Impulse Item" = "azure3")) +
+        theme_minimal() +
+        theme(legend.position = "top")
+      
+    } else if (input$relationship == "Product Type vs Shipping Type") {
+      ggplot(filtered_data, aes(x = Product.Type, fill = Shipping.Type)) +
+        geom_bar(position = "dodge") +
+        labs(title = paste("Shipping Type by Product Type for Age Group", input$age_group, "and Order Status", input$order_status), 
+             x = "Product Type", y = "Count") +
+        scale_fill_manual(values = c("Standard" = "aquamarine4", "Express" = "antiquewhite2", "Overnight" = "azure3", "Same Day" = "cyan3", "Expedited" = "bisque4")) +
+        theme_minimal() +
+        theme(legend.position = "top")
+    }
+  })
+  
+  # Display filtered data with additional information
+  output$filtered_data <- renderTable({
+    # Filter data based on age group, date range, and order status
+    filtered_data <- cleaned_data %>% 
+      filter(Age_Group == input$age_group,
+             Purchase.Date >= input$date_range[1] & Purchase.Date <= input$date_range[2],
+             Order.Status == input$order_status)
+    
+    # Display selected columns
+    filtered_data %>%
+      select(Customer.ID, Age, Gender, Loyalty.Member, Product.Type, SKU, Order.Status, Total.Price, Add.on.Total)
+  })
+}
+
+# Run the application 
+shinyApp(ui = ui, server = server)
+
+```
+
+
